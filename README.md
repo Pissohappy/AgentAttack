@@ -302,37 +302,3 @@ python -m agent_attack.examples.run_demo
 ```
 
 该示例会输出搜索树节点深度、动作名、节点评分，便于验证多轮回溯框架是否跑通。
-
-## 10. 第二阶段增强（真实模型客户端 + LLM Judge + 预定义攻击手法）
-
-### 10.1 真实模型客户端
-
-新增 `src/agent_attack/runtime/model_clients.py`，统一支持：
-- **vLLM 部署端口**（OpenAI-compatible `/v1/chat/completions`）
-- **OpenAI API**
-- **Gemini API**
-- **Anthropic API**
-
-通过 `ClientConfig(provider, model, api_key, base_url, ...)` 配置。
-
-### 10.2 LLM Prompt Judge
-
-新增 `src/agent_attack/runtime/judge.py`：
-- `LLMPromptJudge` 同时实现 `ParserTagger` 与 `Checker`
-- 用 judge 模型输出 JSON：`tags + score_delta + reason`
-- 替代原启发式 tagger/checker
-
-### 10.3 预定义攻击手法库（Technique Library）
-
-新增 `src/agent_attack/skills/attack_techniques.py`：
-- 维护预定义攻击手法（例如 contextual_reframing、multi_step_probe）
-- 按标签触发建议调用
-- 每个 technique 携带 `creativity_hint`，允许模型在执行中进行启发式变体或新手法创造
-
-### 10.4 示例配置
-
-`src/agent_attack/examples/run_demo.py` 已改为：
-- target: vLLM
-- judge: OpenAI
-
-可按需替换为 Gemini / Anthropic。
