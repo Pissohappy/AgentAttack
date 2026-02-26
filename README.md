@@ -1,11 +1,4 @@
 # AgentAttack
-CATS: Consistency-Aware Backtracking Tree Search with Skill-Based Memory for Agentic Red-Teaming of Vision-Language Models
-
-下面是一份把你提出的三条主线**（回溯树搜索 / 上下文一致性 / skills-based memory）**揉在一起、可直接拿去开题或写 workshop/ICLR-style proposal 的完整版本。我会把定位明确为**安全评测与防御验证**，并保持方法描述在“抽象策略/可审计轨迹”层面，不包含任何可直接复用的高风险细节。
-
----
-
-# Proposal
 
 ## Title
 
