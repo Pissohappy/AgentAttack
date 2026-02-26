@@ -37,7 +37,7 @@ class HTTPModelClient(VictimModel):
                 "temperature": self.config.temperature,
             }
             url = self._openai_like_url()
-            headers = self._auth_headers("Bearer")
+            headers = self._openai_like_headers()
             data = self._post_json(url, payload, headers)
             return data["choices"][0]["message"]["content"]
 
@@ -85,11 +85,13 @@ class HTTPModelClient(VictimModel):
             base = self.config.base_url
         return f"{base.rstrip('/')}/chat/completions"
 
-    def _auth_headers(self, scheme: str) -> dict[str, str]:
+    def _openai_like_headers(self) -> dict[str, str]:
         headers = {**self.config.extra_headers}
-        api_key = self.config.api_key
-        if api_key:
-            headers["Authorization"] = f"{scheme} {api_key}"
+        key = self.config.api_key
+        if not key and self.provider == "openai":
+            key = os.getenv("OPENAI_API_KEY")
+        if key:
+            headers["Authorization"] = f"Bearer {key}"
         return headers
 
     def _require_key(self) -> str:

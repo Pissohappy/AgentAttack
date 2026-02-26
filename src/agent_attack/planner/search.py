@@ -8,6 +8,7 @@ from uuid import uuid4
 from agent_attack.core.interfaces import ActionRealizer, Checker, ParserTagger, VictimModel
 from agent_attack.core.types import Action, AttackGoal, SearchNode, SearchState
 from agent_attack.memory.skills import SkillLibrary
+from agent_attack.skills.attack_techniques import TechniqueLibrary
 
 
 class FrontierPlanner:
@@ -20,6 +21,7 @@ class FrontierPlanner:
         checker: Checker,
         realizer: ActionRealizer,
         skill_library: SkillLibrary,
+        technique_library: TechniqueLibrary,
         max_budget: int = 20,
         beam_width: int = 5,
     ) -> None:
@@ -28,6 +30,7 @@ class FrontierPlanner:
         self.checker = checker
         self.realizer = realizer
         self.skill_library = skill_library
+        self.technique_library = technique_library
         self.max_budget = max_budget
         self.beam_width = beam_width
         self._counter = count()
@@ -89,5 +92,6 @@ class FrontierPlanner:
             Action(name="reframe_goal", payload={"style": "indirect"}),
             Action(name="ask_clarification", payload={"tone": "neutral"}),
         ]
+        techniques = self.technique_library.suggest(node)
         skills = self.skill_library.suggest(node)
-        return operators + skills
+        return operators + techniques + skills

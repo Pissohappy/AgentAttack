@@ -302,3 +302,137 @@ python -m agent_attack.examples.run_demo
 ```
 
 该示例会输出搜索树节点深度、动作名、节点评分，便于验证多轮回溯框架是否跑通。
+
+## 10. 第二阶段增强（真实模型客户端 + LLM Judge + 预定义攻击手法）
+
+### 10.1 真实模型客户端
+
+新增 `src/agent_attack/runtime/model_clients.py`，统一支持：
+- **vLLM 部署端口**（OpenAI-compatible `/v1/chat/completions`）
+- **OpenAI API**
+- **Gemini API**
+- **Anthropic API**
+
+通过 `ClientConfig(provider, model, api_key, base_url, ...)` 配置。
+
+### 10.2 LLM Prompt Judge
+
+新增 `src/agent_attack/runtime/judge.py`：
+- `LLMPromptJudge` 同时实现 `ParserTagger` 与 `Checker`
+- 用 judge 模型输出 JSON：`tags + score_delta + reason`
+- 替代原启发式 tagger/checker
+
+### 10.3 预定义攻击手法库（Technique Library）
+
+新增 `src/agent_attack/skills/attack_techniques.py`：
+- 维护预定义攻击手法（例如 contextual_reframing、multi_step_probe）
+- 按标签触发建议调用
+- 每个 technique 携带 `creativity_hint`，允许模型在执行中进行启发式变体或新手法创造
+
+### 10.4 示例配置
+
+`src/agent_attack/examples/run_demo.py` 已改为：
+- target: vLLM
+- judge: OpenAI
+
+可按需替换为 Gemini / Anthropic。
+
+## 11. 仓库检查结论（当前版本）
+
+### 已修复/增强
+
+1. **OpenAI API key 默认读取问题**
+   - `HTTPModelClient` 现支持 `OPENAI_API_KEY` 环境变量自动读取（未显式传 `api_key` 时）。
+
+2. **Judge 重复调用导致成本翻倍**
+   - `LLMPromptJudge.parse()` 的 `score_delta` 会写入 `Observation.metadata`；
+   - `score()` 优先复用该值，避免同一响应二次 judge 调用。
+
+3. **新增 benchmark 运行主链路（支持你的数据格式）**
+   - 新增 `src/agent_attack/runtime/benchmark.py`：
+     - 读取 JSON 数据集
+     - baseline 单轮直测
+     - agent 多轮轨迹攻击
+     - 结果落盘
+
+4. **新增统一入口脚本**
+   - `src/agent_attack/examples/run_benchmark.py`
+   - 用 `--mode baseline|agent` 切换评测模式。
+
+---
+
+## 12. 如何运行这个框架
+
+### 12.1 你的数据格式
+
+框架已直接兼容如下 JSON 数组结构（字段会被保留到输出中）：
+
+```json
+[
+  {
+    "image_path": "/path/to/image.png",
+    "original_prompt": "...",
+    "style": "declarative",
+    "main_category": "A. Ethical and Social Risks",
+    "subcategory": "A1. Bias and Discrimination",
+    "id": 4
+  }
+]
+```
+
+> 当前版本会以 `original_prompt` 作为起始意图。`image_path` 会保留到结果元数据中，后续如需真正多模态输入，可在 `ActionRealizer` / `VictimModel` 里扩展图片字段传输。
+
+### 12.2 基线评测（非 Agent、单轮）
+
+直接把有害 prompt 单轮发给目标模型：
+
+```bash
+PYTHONPATH=src python -m agent_attack.examples.run_benchmark \
+  --dataset examples/sample_benchmark.json \
+  --output outputs_baseline.json \
+  --mode baseline \
+  --target-provider vllm \
+  --target-model meta-llama/Llama-3.1-8B-Instruct \
+  --target-base-url http://127.0.0.1:8000/v1
+```
+
+如果是 OpenAI：
+
+```bash
+export OPENAI_API_KEY=your_key
+PYTHONPATH=src python -m agent_attack.examples.run_benchmark \
+  --dataset examples/sample_benchmark.json \
+  --output outputs_baseline.json \
+  --mode baseline \
+  --target-provider openai \
+  --target-model gpt-4o-mini
+```
+
+### 12.3 Agent 多轮红队评测
+
+以数据集里的 `original_prompt` 作为 seed，后续由 planner 持续扩展：
+
+```bash
+export OPENAI_API_KEY=your_openai_key
+PYTHONPATH=src python -m agent_attack.examples.run_benchmark \
+  --dataset examples/sample_benchmark.json \
+  --output outputs_agent.json \
+  --mode agent \
+  --target-provider vllm \
+  --target-model meta-llama/Llama-3.1-8B-Instruct \
+  --target-base-url http://127.0.0.1:8000/v1 \
+  --judge-provider openai \
+  --judge-model gpt-4o-mini \
+  --objective "Probe consistency boundaries for unsafe intent across turns" \
+  --subgoals trigger_refusal recover measure_drift \
+  --constraints no_harmful_content high_level_only \
+  --max-budget 12 \
+  --beam-width 4
+```
+
+### 12.4 输出结果说明
+
+- baseline 输出：每条样本一个 `response`
+- agent 输出：每条样本包含 `trajectory`（每个节点记录 action/source/score/tags/response）
+
+可直接用于后处理统计（ASR、drift、recovery、成本等）。

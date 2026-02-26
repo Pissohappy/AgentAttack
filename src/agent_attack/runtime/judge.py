@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
+from typing import Any
 
 from agent_attack.core.interfaces import Checker, ParserTagger, VictimModel
 from agent_attack.core.types import Observation, ObservationTag, SearchNode
@@ -22,14 +23,29 @@ class LLMPromptJudge(ParserTagger, Checker):
 
     def parse(self, response: str, node: SearchNode) -> Observation:
         result = self._judge(node=node, response=response)
-        return Observation(raw_response=response, tags=result.tags, metadata={"reason": result.reason})
+        return Observation(
+            raw_response=response,
+            tags=result.tags,
+            metadata={
+                "reason": result.reason,
+                "score_delta": result.score_delta,
+            },
+        )
 
     def score(self, node: SearchNode, child: SearchNode) -> float:
         if child.observation is None:
             return -1.0
-        result = self._judge(node=node, response=child.observation.raw_response)
+
+        score_delta: float
+        raw_delta = child.observation.metadata.get("score_delta") if child.observation.metadata else None
+        if isinstance(raw_delta, (float, int)):
+            score_delta = float(raw_delta)
+        else:
+            result = self._judge(node=node, response=child.observation.raw_response)
+            score_delta = result.score_delta
+
         cost_penalty = 0.05 * child.state.budget_used
-        return result.score_delta - cost_penalty
+        return score_delta - cost_penalty
 
     def should_prune(self, child: SearchNode) -> bool:
         if child.observation is None:
@@ -68,7 +84,7 @@ class LLMPromptJudge(ParserTagger, Checker):
         )
 
     @staticmethod
-    def _safe_parse_json(raw: str) -> dict:
+    def _safe_parse_json(raw: str) -> dict[str, Any]:
         raw = raw.strip()
         try:
             return json.loads(raw)
