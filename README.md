@@ -233,3 +233,72 @@ V(n)=\alpha \cdot \text{Progress}(n) + \beta \cdot \text{Consistency}(n) + \gamm
 **我们把多模态红队从“线性自适应改写 + 轨迹检索”推进到“回溯式路径搜索 + 一致性约束 + 技能记忆”的可审计评测范式，从而在覆盖度、成本、可诊断性与迁移性上实现系统提升。**
 
 ---
+## 9. 代码框架设计与首版实现（MCP + Skills）
+
+下面给出一个可直接扩展的首版工程骨架（已在本仓库实现）：
+
+```text
+AgentAttack/
+├─ pyproject.toml
+├─ README.md
+└─ src/agent_attack/
+   ├─ core/
+   │  ├─ types.py          # 统一数据结构（Goal/Node/Action/Observation）
+   │  └─ interfaces.py     # Victim/Parser/Checker/Realizer 抽象接口
+   ├─ planner/
+   │  └─ search.py         # Frontier best-first + backtracking 规划器
+   ├─ memory/
+   │  └─ skills.py         # Skill 定义、调用、在线参数更新
+   ├─ mcp/
+   │  └─ client.py         # MCP Registry 与工具调用抽象
+   ├─ skills/
+   │  └─ loader.py         # 技能持久化（JSON）
+   ├─ runtime/
+   │  ├─ components.py     # HeuristicTagger / ConsistencyChecker 等默认组件
+   │  └─ engine.py         # CATSAttackEngine 装配入口
+   └─ examples/
+      └─ run_demo.py       # 本地 demo
+```
+
+### 9.1 架构分层
+
+1. **core 层**：
+   - 使用 `SearchNode` 表达树搜索节点；
+   - `Action` 统一表示原子 operator 与 skill 动作（`source=operator|skill`）；
+   - `ObservationTag` 作为一致性与恢复分析的统一标签空间。
+
+2. **planner 层**：
+   - `FrontierPlanner` 维护 frontier（优先队列）；
+   - 每轮执行 `Select -> Expand -> Evaluate -> Backtrack`；
+   - 支持 `beam_width` 与 `max_budget` 预算控制。
+
+3. **checker/tagger 层**：
+   - `HeuristicTagger` 把 victim 响应映射为标签；
+   - `ConsistencyChecker` 将 progress/refusal/repetition 映射到分值，并提供 prune 规则。
+
+4. **skills memory 层**：
+   - `Skill` 采用四元组近似：preconditions、policy_steps、parameters、termination；
+   - `SkillLibrary.suggest()` 根据当前标签挑选技能；
+   - `observe_transition()` 用在线统计更新参数（示例里更新 `directness`）。
+
+5. **MCP 集成层**：
+   - `MCPRegistry` 解耦 planner 与具体工具实现；
+   - 可把 parser、judge、external retriever、image transform 等能力注册为 MCP handler。
+
+### 9.2 如何扩展成真实系统
+
+- 将 `MockVictim` 替换为真实模型 API Client（OpenAI/Anthropic/自建 VLM 服务）；
+- 将 `HeuristicTagger` 替换为 LLM+规则混合 judge；
+- 在 `mcp/client.py` 注册外部工具，例如：
+  - 检索历史技能候选；
+  - 多裁判一致性评分；
+  - 图像变换或 OCR 管线；
+- 将 `SkillStore` 与离线 discovery（分段+聚类）联通，持续扩充 skill 库。
+
+### 9.3 运行示例
+
+```bash
+python -m agent_attack.examples.run_demo
+```
+
+该示例会输出搜索树节点深度、动作名、节点评分，便于验证多轮回溯框架是否跑通。
